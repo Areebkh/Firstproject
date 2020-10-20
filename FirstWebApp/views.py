@@ -15,7 +15,6 @@ stripe.api_key = settings.STRIPE_SECRET_KEY
 
 
 class Home_page_view(ListView):
-
     model = Item
     paginate_by = 8
     template_name = 'FirstWebApp/home-page.html'
@@ -68,7 +67,7 @@ def checkout_view(request):
         messages.warning(request, "You do not have an active order.")
         return redirect("/")
 
-class PaymentView(View):
+class PaymentView(LoginRequiredMixin, View):
     def get(self, *args, **kwargs):
         order = Order.objects.get(user=self.request.user, ordered=False)
         context = {

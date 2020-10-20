@@ -1,17 +1,14 @@
-{% extends 'FirstWebApp/base2.html' %}
-
+{% extends 'FirstWebApp/base.html' %}
 {% block content %}
         <br>
         <br>
-    <body>
-
-      <main>
-        <div class="container">
-            <hr>
-            <h1><center>Order Summary</center></h1>
-             <hr>
-            <div class="table-responsive">
-                <table class="table">
+        <main>
+            <div class="container">
+                <hr>
+                <h1><center>Order Summary</center></h1>
+                <hr>
+                <div class="table-responsive">
+                    <table class="table">
                     <thead>
                         <tr>
                         <th scope="col">#</th>
@@ -57,7 +54,7 @@
                     {% if object.get_total %}
                     <tr>
                         <td colspan="4"><b>Order Total</b></td>
-                        <td><b>{{ object.get_total }}</b></td>
+                        <td><b>Rs{{ object.get_total }}</b></td>
                     </tr>
                     <tr>
                         <td colspan="5">
@@ -67,10 +64,8 @@
                     </tr>
                     {% endif %}
                     </tbody>
-                </table>
+                    </table>
+                </div>
             </div>
-        </div>
-      </main>
-      <!--Main layout-->
-    </body>
+        </main>
 {% endblock %}
