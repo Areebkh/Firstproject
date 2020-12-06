@@ -6,18 +6,20 @@ from django.core.exceptions import ObjectDoesNotExist
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
 from .models import Item, Order, OrderItem, CheckoutDetail, Payment
+from .utils import cookiesCart
 from .forms import CheckoutDetailsForm
 from django.views.generic import ListView, DetailView, View
 from django.utils import timezone
-
 import stripe
-stripe.api_key = settings.STRIPE_SECRET_KEY
+import json
 
+stripe.api_key = settings.STRIPE_SECRET_KEY
 
 class Home_page_view(ListView):
     model = Item
     paginate_by = 8
     template_name = 'FirstWebApp/home-page.html'
+
 
 def Search_view(request):
     all_items = Item.objects.all()
@@ -26,52 +28,72 @@ def Search_view(request):
         all_items = all_items.filter(Q(category__icontains=query) |
                                      Q(title__icontains=query)
                                      )
+    cookieData = cookiesCart(request)
+    cartItems = cookieData['cartItems']
     context = {
-            'object_list': all_items
-
+            'object_list': all_items,
+            'cartItems': cartItems,
         }
     return render(request, 'FirstWebApp/search.html', context)
 
-
-class OrderSummaryView(LoginRequiredMixin, View):
+class OrderSummaryView(View):
     def get(self, *args, **kwargs):
-        try:
-            order = Order.objects.get(user=self.request.user, ordered=False)
-            context = {
-                "object": order
-            }
+        if self.request.user.is_authenticated:
+            try:
+                order = Order.objects.get(user=self.request.user, ordered=False)
+                context = {
+                    "object": order
+                }
+                return render(self.request, 'FirstWebApp/order_summary.html', context)
+            except ObjectDoesNotExist:
+                messages.warning(self.request, "You do not have an active order.")
+                return redirect("/")
+        else:
+            cookieData = cookiesCart(self.request)
+            order = cookieData['order']
+            items = cookieData['items']
+            cartItems = cookieData['cartItems']            
+            context = {'order': order, 'items': items, 'cartItems': cartItems}
             return render(self.request, 'FirstWebApp/order_summary.html', context)
-        except ObjectDoesNotExist:
-            messages.warning(self.request, "You do not have an active order.")
-            return redirect("/")
 
-@login_required
 def checkout_view(request):
-    form = CheckoutDetailsForm(request.POST or None)
-    try:
-        order = Order.objects.get(user=request.user, ordered=False)
-        if request.method == 'POST':
-            if form.is_valid:
-                checkout_form = form.save(commit=False)
-                checkout_form.user = request.user
-                checkout_form.save()
-                order.checkoutdetails = checkout_form
-                order.save()
-                return redirect('ecommerce:payment')
+    if request.user.is_authenticated:
+        form = CheckoutDetailsForm(request.POST or None)
+        try:
+            order = Order.objects.get(user=request.user, ordered=False)
+            if request.method == 'POST':
+                if form.is_valid:
+                    checkout_form = form.save(commit=False)
+                    checkout_form.user = request.user
+                    checkout_form.save()
+                    order.checkoutdetails = checkout_form
+                    order.save()
+                    return redirect('ecommerce:payment')
 
-        context = {
-            'form': form
-        }
+            context = {
+                'form': form
+            }
+            return render(request, 'FirstWebApp/checkout-page.html', context)
+        except ObjectDoesNotExist:
+            messages.warning(request, "You do not have an active order.")
+            return redirect("/")
+    else:
+        cookieData = cookiesCart(request)
+        order = cookieData['order']
+        items = cookieData['items']
+        cartItems = cookieData['cartItems']            
+        context = {'order': order, 'items': items, 'cartItems': cartItems}
         return render(request, 'FirstWebApp/checkout-page.html', context)
-    except ObjectDoesNotExist:
-        messages.warning(request, "You do not have an active order.")
-        return redirect("/")
+
 
 class PaymentView(LoginRequiredMixin, View):
     def get(self, *args, **kwargs):
         order = Order.objects.get(user=self.request.user, ordered=False)
+        cookieData = cookiesCart(self.request)
+        cartItems = cookieData['cartItems']
         context = {
-            'order': order
+            'order': order,
+            'cartItems': cartItems,
         }
         return render(self.request, 'FirstWebApp/payment.html', context)
 
@@ -139,12 +161,15 @@ class PaymentView(LoginRequiredMixin, View):
 
         except Exception as e:
             # send email to ourselves
+            print(e)
             messages.warning(self.request, 'A serious error occured. We have been notified.')
             return redirect('/')
 
 class ProductDetails_view(DetailView):
-    model = Item
-    template_name = "FirstWebApp/product-page.html"
+        model = Item
+        template_name = 'FirstWebApp/product-page.html'
+
+
 
 @login_required
 def add_to_cart(request, slug):
@@ -176,6 +201,7 @@ def add_to_cart(request, slug):
         order.items.add(order_item)
         messages.success(request, "This item was added to your cart.")
     return redirect('ecommerce:order-summary')
+        
 
 @login_required
 def remove_from_cart(request, slug):
@@ -189,7 +215,7 @@ def remove_from_cart(request, slug):
                 item=item,
                 user=request.user,
                 ordered=False,
-                )[0]
+            )[0]
             order.items.remove(order_item)
             messages.success(request, "This item was removed from your cart.")
             return redirect('ecommerce:order-summary')
@@ -200,29 +226,28 @@ def remove_from_cart(request, slug):
         messages.success(request, "You don't have an active order.")
         return redirect('ecommerce:product', slug=slug)
 
-
+@login_required
 def remove_single_item_from_cart(request, slug):
-        item = get_object_or_404(Item, slug=slug)
-        order_qs = Order.objects.filter(user=request.user, ordered=False)
-        if order_qs.exists():
-            order = order_qs[0]
-            # checking if the order item is in the order
-            if order.items.filter(item__slug=item.slug).exists():
-                order_item = OrderItem.objects.filter(
-                    item=item,
-                    user=request.user,
-                    ordered=False,
-                )[0]
-                if order_item.quantity > 1:
-                    order_item.quantity -= 1
-                    order_item.save()
-                else:
-                    order.items.remove(order_item)
-                return redirect('ecommerce:order-summary')
+    item = get_object_or_404(Item, slug=slug)
+    order_qs = Order.objects.filter(user=request.user, ordered=False)
+    if order_qs.exists():
+        order = order_qs[0]
+        # checking if the order item is in the order
+        if order.items.filter(item__slug=item.slug).exists():
+            order_item = OrderItem.objects.filter(
+                item=item,
+                user=request.user,
+                ordered=False,
+            )[0]
+            if order_item.quantity > 1:
+                order_item.quantity -= 1
+                order_item.save()
             else:
-                messages.success(request, "This item was not in your cart.")
-                return redirect('ecommerce:product', slug=slug)
+                order.items.remove(order_item)
+            return redirect('ecommerce:order-summary')
         else:
-            messages.success(request, "You don't have an active order.")
+            messages.success(request, "This item was not in your cart.")
             return redirect('ecommerce:product', slug=slug)
-
+    else:
+        messages.success(request, "You don't have an active order.")
+        return redirect('ecommerce:product', slug=slug)

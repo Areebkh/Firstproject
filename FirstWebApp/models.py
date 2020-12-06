@@ -96,7 +96,6 @@ class Order(models.Model):
             total += order_item.get_final_price()
         return total
 
-
 class CheckoutDetail(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     address = models.CharField(max_length=500)
